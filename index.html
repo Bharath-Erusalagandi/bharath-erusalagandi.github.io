@@ -195,6 +195,29 @@
   .contact p { font-size: 19px; }
   .contact a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--faint); }
   .contact a:hover { border-bottom-color: var(--accent); }
+  .contact {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .contact-pixel-wrap {
+    flex: 1 1 auto;
+    min-height: min(52vh, 520px);
+    margin-top: 3vh;
+    border: 1px solid var(--ed-border);
+    background: var(--ed-surface);
+    overflow: hidden;
+    position: relative;
+  }
+  #contact-pixel-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: min(52vh, 520px);
+    cursor: crosshair;
+    touch-action: none;
+  }
 
   footer {
     margin-top: 72px; padding-top: 22px; border-top: 1px solid var(--rule);
@@ -396,6 +419,12 @@
     font-size: clamp(15px, 1.4vw, 17px);
     line-height: 1.65;
   }
+  #panel-contact .contact {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
   .entry-where, .entry-date, .award-where { color: var(--ed-faint); font-size: clamp(13px, 1.2vw, 15px); }
   details.entry > summary::after { font-size: 18px; }
   .motto, .motto-cap { display: none; }
@@ -556,9 +585,9 @@
       email me at <a href="mailto:bharatherusalagandi@gmail.com">bharatherusalagandi@gmail.com</a>,
       or poke around my code on <a href="https://github.com/Bharath-Erusalagandi" target="_blank" rel="noopener">GitHub</a>.
     </p>
-    <p>
-      Also see <a href="https://github.com/z3lka/cool-pixelation-effect" target="_blank" rel="noopener">cool-pixelation-effect</a>.
-    </p>
+    <div class="contact-pixel-wrap" aria-label="Interactive pixel artwork">
+      <canvas id="contact-pixel-canvas"></canvas>
+    </div>
   </section>
   </div>
 
@@ -732,6 +761,186 @@
   document.querySelectorAll('summary .gh-link').forEach(a => {
     a.addEventListener('click', e => e.stopPropagation());
   });
+
+  /* ---------- contact pixel hover (from cool-pixelation-effect) ---------- */
+  (function () {
+    const canvas = document.getElementById('contact-pixel-canvas');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const image = new Image();
+    const state = {
+      width: 0,
+      height: 0,
+      dpr: 1,
+      particles: [],
+      pointer: { x: 0, y: 0, active: false },
+      running: false,
+    };
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    image.decoding = 'async';
+    image.src = 'photo.avif';
+
+    function getSettings() {
+      const compact = state.width < 560;
+      return {
+        cell: compact ? 8 : 7,
+        gap: 2,
+        darkCutoff: 24,
+        imageWidth: compact ? 0.92 : 0.78,
+        imageHeight: compact ? 0.88 : 0.95,
+        imageCenterX: 0.5,
+        imageCenterY: 0.52,
+        hoverRadius: compact ? 85 : 120,
+        pointerPush: compact ? 80 : 115,
+      };
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      state.width = rect.width;
+      state.height = rect.height;
+      state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(rect.width * state.dpr);
+      canvas.height = Math.round(rect.height * state.dpr);
+      ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+    }
+
+    function getOffscreenCanvas(width, height) {
+      if ('OffscreenCanvas' in window) return new OffscreenCanvas(width, height);
+      const fallback = document.createElement('canvas');
+      fallback.width = width;
+      fallback.height = height;
+      return fallback;
+    }
+
+    function buildParticles() {
+      if (!image.naturalWidth) return;
+      const settings = getSettings();
+      resizeCanvas();
+      state.particles = [];
+
+      const maxWidth = state.width * settings.imageWidth;
+      const maxHeight = state.height * settings.imageHeight;
+      const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+      const renderWidth = Math.max(1, image.naturalWidth * scale);
+      const renderHeight = Math.max(1, image.naturalHeight * scale);
+      const left = state.width * settings.imageCenterX - renderWidth / 2;
+      const top = state.height * settings.imageCenterY - renderHeight / 2;
+      const sampleWidth = Math.max(1, Math.floor(renderWidth / settings.cell));
+      const sampleHeight = Math.max(1, Math.floor(renderHeight / settings.cell));
+      const cellWidth = renderWidth / sampleWidth;
+      const cellHeight = renderHeight / sampleHeight;
+      const cellSize = Math.max(1, Math.min(cellWidth, cellHeight) - settings.gap);
+      const sampler = getOffscreenCanvas(sampleWidth, sampleHeight);
+      const samplerCtx = sampler.getContext('2d', { willReadFrequently: true });
+
+      samplerCtx.clearRect(0, 0, sampleWidth, sampleHeight);
+      samplerCtx.drawImage(image, 0, 0, sampleWidth, sampleHeight);
+
+      const pixels = samplerCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+
+      for (let y = 0; y < sampleHeight; y += 1) {
+        for (let x = 0; x < sampleWidth; x += 1) {
+          const index = (y * sampleWidth + x) * 4;
+          const red = pixels[index];
+          const green = pixels[index + 1];
+          const blue = pixels[index + 2];
+          const alpha = pixels[index + 3];
+          const brightness = red * 0.299 + green * 0.587 + blue * 0.114;
+
+          if (alpha < 45 || brightness < settings.darkCutoff) continue;
+
+          const homeX = left + x * cellWidth;
+          const homeY = top + y * cellHeight;
+
+          state.particles.push({
+            x: homeX,
+            y: homeY,
+            homeX,
+            homeY,
+            size: cellSize,
+            baseAlpha: alpha / 255,
+            color: `rgb(${red}, ${green}, ${blue})`,
+            phase: Math.random() * Math.PI * 2,
+            speed: 0.07 + Math.random() * 0.055,
+          });
+        }
+      }
+    }
+
+    function drawFrame(time) {
+      if (!state.running) return;
+      const settings = getSettings();
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--ed-surface').trim() || '#ece8df';
+
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, state.width, state.height);
+
+      for (const particle of state.particles) {
+        let targetX = particle.homeX;
+        let targetY = particle.homeY;
+
+        if (state.pointer.active && !prefersReducedMotion) {
+          const dx = particle.homeX - state.pointer.x;
+          const dy = particle.homeY - state.pointer.y;
+          const distance = Math.hypot(dx, dy);
+
+          if (distance < settings.hoverRadius) {
+            const force = (1 - distance / settings.hoverRadius) ** 2;
+            const angle = Math.atan2(dy, dx);
+            targetX += Math.cos(angle) * settings.pointerPush * force;
+            targetY += Math.sin(angle) * settings.pointerPush * force;
+          }
+        }
+
+        particle.x += (targetX - particle.x) * particle.speed;
+        particle.y += (targetY - particle.y) * particle.speed;
+
+        const shimmer = 0.88 + Math.sin(time * 0.002 + particle.phase) * 0.12;
+        ctx.globalAlpha = particle.baseAlpha * shimmer;
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(particle.x, particle.y, particle.size, particle.size);
+      }
+
+      ctx.globalAlpha = 1;
+      requestAnimationFrame(drawFrame);
+    }
+
+    function updatePointer(event) {
+      const rect = canvas.getBoundingClientRect();
+      state.pointer.x = event.clientX - rect.left;
+      state.pointer.y = event.clientY - rect.top;
+    }
+
+    canvas.addEventListener('pointerenter', (event) => {
+      state.pointer.active = true;
+      updatePointer(event);
+    });
+    canvas.addEventListener('pointermove', updatePointer);
+    canvas.addEventListener('pointerleave', () => { state.pointer.active = false; });
+
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(buildParticles, 120);
+    });
+
+    image.addEventListener('load', () => {
+      buildParticles();
+      state.running = true;
+      requestAnimationFrame(drawFrame);
+    });
+
+    image.addEventListener('error', () => {
+      resizeCanvas();
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ed-muted').trim();
+      ctx.font = '14px "JetBrains Mono", monospace';
+      ctx.fillText('Could not load artwork.', 16, 28);
+    });
+  })();
 </script>
 </body>
 </html>
